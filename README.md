@@ -17,7 +17,7 @@
 | Item | Location |
 |---|---|
 | Code | [`code/`](code/) |
-| Paper / report | [`paper/report.md`](paper/report.md) |
+| Paper / report | [`paper/report.tex`](paper/report.tex) (IEEE) · [`paper/report.md`](paper/report.md) (source) |
 | Slides | [`slides/AI-Study-Planner.pdf`](slides/AI-Study-Planner.pdf) |
 | 7-day usage log | [`usage-log/USAGE_LOG.md`](usage-log/USAGE_LOG.md) |
 | Demo video (≤ 5 min) | [`demo-video/`](demo-video/) — _link added after recording_ |

@@ -1,0 +1,297 @@
+%% Coin — AI Study Planner for Grad Students
+%% IEEE conference format (IEEEtran).
+%% Compile on Overleaf (IEEEtran is built in) or locally:
+%%   pdflatex report.tex   (run twice for references)
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\title{Coin: A Private, Note-Grounded AI Study Planner\\ for Graduate Students}
+
+\author{\IEEEauthorblockN{Seohee Han}
+\IEEEauthorblockA{\textit{Generative AI and Blockchain} \\
+\textit{Gwangju Institute of Science and Technology (GIST)}\\
+Gwangju, South Korea \\
+hanseohee@gm.gist.ac.kr}}
+
+\maketitle
+
+\begin{abstract}
+Graduate research removes the explicit yardstick of undergraduate exams: there
+is no weekly score, advisor feedback is coarse, and general-purpose chatbots are
+stateless strangers that return plausible-sounding generalities because they have
+no memory of the student. This paper presents \textbf{Coin}, a private Personal AI
+Butler that runs entirely on a personal laptop. Coin wires \emph{Claude} into a
+graduate student's real tools---Obsidian notes, a schedule store, a music log, and
+a blog---through five self-authored Model Context Protocol (MCP) servers, and is
+reached conversationally through Telegram. Its defining capability is a weekly
+research review produced by Retrieval-Augmented Generation (RAG): it retrieves the
+week's journal, the student's research-goal file, and an activity summary, then
+generates feedback \emph{grounded in those records} rather than inventing them. We
+analyze the system through the agent-intelligence frame $I = M \times
+\mathrm{HBM} \times R$ and show non-trivial mass in all three factors, document the
+cost and rate-limit engineering that makes daily use affordable, and present an
+11-day usage log as practicality evidence.
+\end{abstract}
+
+\begin{IEEEkeywords}
+AI agent, Model Context Protocol, retrieval-augmented generation, personal
+assistant, local-first, cost-efficient LLM.
+\end{IEEEkeywords}
+
+\section{Introduction}
+The transition from undergraduate to graduate study removes a feedback signal that
+students rarely notice until it is gone. Exams provided a recurring, quantitative
+answer to \emph{``am I doing okay?''}. Research provides none. The weekly lab
+meeting is the only structured checkpoint, and it is necessarily coarse---an
+advisor cannot give fine-grained, day-level feedback, and a student cannot report
+everything.
+
+Three existing tools fail to fill this gap. \emph{Paper planners} are tedious to
+maintain, are designed for exam-driven study, and give no feedback. \emph{General
+chatbots} (ChatGPT, Gemini) have no persistent memory of the student's goals; each
+session starts from zero, so advice is generic and nothing accumulates.
+\emph{Note apps} (Obsidian, Notion) store records faithfully but do not reason over
+them.
+
+We argue that the missing artifact is a \emph{personalized planner that (a)
+remembers the student and (b) gives weekly feedback grounded in the student's own
+records.} This paper describes such a system, Coin, built as a private AI butler
+on the OpenClaw + Claude + MCP stack.
+
+\section{System Architecture}
+Coin runs on an LG gram 16 (Intel i7-1195G7, 16~GB RAM) under Ubuntu 24.04 LTS.
+The OpenClaw gateway runs continuously as a \texttt{systemd} service, so the
+assistant is always reachable. The user interface is a Telegram bot; the reasoning
+engine is the Claude API; the connection to the user's data is MCP.
+
+Conceptually, the OpenClaw gateway (``Coin'') sits at the center: Telegram provides
+the chat interface, the Claude API (Sonnet/Haiku) provides reasoning, and five
+local MCP servers connect outward to the Obsidian Vault, a Notion mirror, a Jekyll
+blog, a Spotify listening log, and read-only web access.
+
+Five local MCP servers expose the user's tools to Claude
+(Table~\ref{tab:mcp}). None stores credentials in source; each reads secrets from
+\texttt{\textasciitilde/.openclaw/*.json} at runtime.
+
+\begin{table}[t]
+\caption{MCP servers and their tools}
+\label{tab:mcp}
+\centering
+\footnotesize
+\begin{tabular}{@{}llp{4.6cm}@{}}
+\toprule
+\textbf{Server} & \textbf{Tools} & \textbf{Function} \\
+\midrule
+\texttt{brain}    & 13 & Read / search / write the Obsidian Vault \\
+\texttt{schedule} & 17 & Calendar, todos, commitments, \texttt{weekly\_summary} \\
+\texttt{spotify}  & 15 & Listening log, ``obsessed-on'', playback, heatmap \\
+\texttt{blog}     & 6  & Publish posts/news to a Jekyll GitHub Pages blog \\
+\texttt{usage}    & 5  & Token/cost/time tracking from session files \\
+\texttt{fetch}    & -- & Read-only web access (\texttt{mcp-server-fetch}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Core Mechanism: Note-Grounded Weekly Review}
+A weekly review is the one task a generic chatbot cannot perform, because the
+required context---\emph{this student's} week---does not exist in its weights. Coin
+treats the review as a Retrieval-Augmented Generation problem.
+
+\textbf{Retrieval.} Before any text is generated, Coin pulls three sources:
+(1)~\texttt{brain.recent\_logs(7)}---the week's seven journal entries;
+(2)~\texttt{brain.read\_note(\textnormal{``RESEARCH\_GOALS''})}---the student's goal
+file; and (3)~\texttt{schedule.weekly\_summary}---the week's activity mix.
+
+\textbf{Generation.} Claude composes the review \emph{grounded in} that retrieved
+context. In the demo, the review correctly states that the student ``finished the
+DAE paper,'' prepared ``the lab-meeting PPT,'' and ``slept at 5~AM''---each fact
+retrieved from a journal entry, not hallucinated. A plain chatbot, lacking these
+records, instead produces plausible-sounding generalities. This contrast is the
+project's central empirical claim.
+
+\section{Analysis Frame: $I = M \times \mathrm{HBM} \times R$}
+Course material framed LLM-substrate intelligence as $I = \mathrm{Compute} \times
+\mathrm{Memory} \times \mathrm{Retrieval}$. We re-map this at the \emph{agent
+layer}:
+\begin{equation}
+I_{\mathrm{agent}} = M \times \mathrm{HBM} \times R
+\end{equation}
+where $M$ is the curated \texttt{.md} state (the student's accumulating Obsidian
+notes), $\mathrm{HBM}$ is the chosen model and loaded context, and $R$ is the
+MCP/RAG/tool layer. The product is \emph{multiplicative}: any factor near zero
+collapses agent intelligence, so a useful butler must show non-trivial mass in all
+three.
+
+\textbf{$M$ (curated state)---non-trivial.} Coin's memory is not a chat buffer but
+a structured, growing Vault: daily journal entries, a \texttt{RESEARCH\_GOALS.md}
+goal file, Brain notes (books, papers, insights), and saved weekly reviews. Over
+the evaluation window the journal alone accumulated 11 days of tagged, structured
+entries. This is durable, queryable state, not ephemeral context. \emph{Failure
+mode avoided:} with low $M$ the butler would be stateless and forget the user.
+
+\textbf{$\mathrm{HBM}$ (model / context)---non-trivial.} Coin deliberately routes
+work across a two-tier model stack: Haiku~4.5 for everyday calls and Sonnet~4.6
+reserved for the weekly synthesis where reasoning quality matters. Context is
+actively shaped---\texttt{lightContext} trims persona and background to the
+minimum, and \texttt{toolsAllow} exposes only the ${\sim}6$ tools a weekly review
+needs instead of all ${\sim}50$. \emph{Failure mode avoided:} with low
+$\mathrm{HBM}$ the butler could not load consolidated memory within usable context.
+
+\textbf{$R$ (retrieval / tools)---non-trivial.} Five MCP servers expose ${\sim}50$
+tools, and the weekly review exercises a genuine RAG pipeline that retrieves from
+the Vault and schedule store before generating. Retrieval is observable in the
+usage log as concrete tool calls with outcomes and latencies. \emph{Failure mode
+avoided:} with low $R$ the butler would work from stale data and hallucinate the
+present.
+
+Because all three factors carry real mass, the product---useful agent
+intelligence---does not collapse.
+
+\section{Cost and Rate-Limit Engineering}
+\textbf{The rate-limit wall.} The Anthropic API Tier-1 limit is 30{,}000 input
+tokens per minute. A naive agent re-sends, on every step, both the entire
+conversation so far and the tool manuals for all ${\sim}50$ tools---so even ``read
+one note'' can exceed 30k and the API rejects the request, like re-reading 50
+manuals before every errand.
+
+\textbf{Fix: shrink what gets sent.} Three measures, in order of impact:
+(1)~\texttt{toolsAllow}---expose only the ${\sim}6$ tools a weekly review needs and
+drop the other ${\sim}44$ manuals (largest saving);
+(2)~\texttt{lightContext}---trim persona and background context to the minimum;
+(3)~model choice---Sonnet only for the weekly synthesis, the cheap model
+otherwise. Requests then fit under 30k, the rate-limit errors disappear, and
+per-call cost drops. Building the agent \emph{light} yields stability and savings
+at once.
+
+\textbf{Cost economy.} Because the system bills per token rather than by
+subscription, the design question is not ``what \emph{can} it do?'' but ``what is
+\emph{worth paying for}?'' Capabilities that free local software already provides
+were deliberately subtracted (Table~\ref{tab:subtraction}). What remains is an
+on-demand tool plus a single weekly cron job---the one task uniquely Coin's. The
+\texttt{usage} MCP measures tokens, cost, and active time, so spend is monitored,
+not guessed; the estimated steady-state cost of the final design is on the order of
+a few US dollars per month for personal daily use.
+
+\begin{table}[t]
+\caption{Subtraction: keep only what is uniquely worth paying for}
+\label{tab:subtraction}
+\centering
+\footnotesize
+\begin{tabular}{@{}llp{3.0cm}@{}}
+\toprule
+\textbf{Capability} & \textbf{Decision} & \textbf{Reason} \\
+\midrule
+Sending email          & removed   & I can send it myself \\
+Spotify / Notion sync  & removed   & Linux cron does it, free \\
+Daily song alerts      & removed   & just open Obsidian / Notion \\
+Blog edits             & removed   & Claude Code does it better \\
+\textbf{Weekly research feedback} & \textbf{kept} & \textbf{only Coin can do this} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Privacy and Security}
+\textbf{Local-first data flow.} All personal data is created and stored on the
+laptop (SQLite + Obsidian markdown) and never leaves it except as the minimal
+context a single Claude request requires. Sources on the laptop---Obsidian
+\texttt{.md}, \texttt{schedule.db}, \texttt{spotify.db}---are read by a local MCP
+server, which forwards only a minimal per-request slice to the cloud Claude API;
+the grounded answer is then written back to the Vault. The bulk corpus stays local.
+
+\textbf{Threat model.} Table~\ref{tab:threat} summarizes assets, threats, and
+mitigations. There were zero security incidents during the project period: no
+credential was committed and no personal data left the device beyond per-request
+context.
+
+\begin{table*}[t]
+\caption{Threat model}
+\label{tab:threat}
+\centering
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Asset} & \textbf{Threat} & \textbf{Mitigation} \\
+\midrule
+API / bot keys & Leak via source repo & Secrets only in \texttt{\textasciitilde/.openclaw/*.json}; \texttt{.gitignore} excludes them; repo scanned for hard-coded keys (none found) \\
+Personal records (journal, spend, listening) & Exposure in public repo & All \texttt{*.db} and Vault content excluded from the repo \\
+Unauthorized bot use & Stranger messages the bot & Telegram restricted to a single owner ID; group messages require explicit mention \\
+Cloud over-exposure & Whole Vault sent to API & \texttt{lightContext} + \texttt{toolsAllow} send only the slice a request needs \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Differentiation vs. Big-Tech Assistants}
+Coin demonstrates at least three OpenClaw advantages over hosted assistants:
+(1)~\emph{local \& private}---runs on my laptop; records never centralize in a
+vendor cloud; (2)~\emph{note-grounded (RAG)}---feedback cites my real records
+instead of inventing generalities; (3)~\emph{accumulating memory}---the Vault
+grows, so each week's review is better informed than the last;
+(4)~\emph{self-extensible via MCP}---five servers I wrote connect Claude to
+Obsidian, Notion, Spotify, my blog, and the web; (5)~\emph{cost-bounded}---a
+two-tier model stack and trimmed context keep daily use under the rate limit and
+affordable.
+
+\section{Evaluation}
+\textbf{Practicality.} An 11-day usage log records MCP-mediated calls in the form
+\texttt{HH:MM CHANNEL server task (OUTCOME, latency)} across two channels (CLI and
+Telegram); see Table~\ref{tab:usage}. It evidences daily, real use rather than a
+one-off demo, and shows the retrieval calls underlying the weekly review. (The
+course requires a 7-day log; 11 days are provided.)
+
+\begin{table}[t]
+\caption{11-day usage log summary (2026-05-20 to 2026-06-07)}
+\label{tab:usage}
+\centering
+\footnotesize
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Days covered     & 11 \\
+Total calls      & 206 (203 OK, 3 FAILED; 98.5\% success) \\
+Channels         & CLI 201; Telegram 5 \\
+Busiest servers  & \texttt{brain} 97; \texttt{schedule} 81; \texttt{spotify} 27 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Qualitative.} In the recorded demo the weekly review reproduces
+week-specific facts (DAE-paper completion, lab-meeting PPT, a 5~AM sleep night, and
+a 23{,}900-KRW stopwatch purchase flagged as the week's largest single expense),
+none of which a memoryless chatbot could supply.
+
+\section{Future Work}
+First, \emph{counsel first, then feedback}: before writing a review, ask
+${\sim}5$ short questions over Telegram (``Why didn't the paper get read?'', ``What
+felt most stuck this week?'') and fold the answers into the feedback, turning a
+one-way review into coaching. Second, \emph{smarter as records stack}: as weeks
+accumulate into months and quarters, surface longitudinal patterns (``this month
+vs. last quarter'', ``what keeps getting pushed back?'') and let the review refine
+\texttt{RESEARCH\_GOALS.md} over time.
+
+\section{Conclusion}
+Coin shows that a useful private AI butler for a graduate student is not a matter
+of raw model capability but of getting three multiplicative factors all
+non-trivial at once: a curated, accumulating note state ($M$); deliberate model and
+context selection ($\mathrm{HBM}$); and a real MCP/RAG retrieval layer ($R$).
+Grounding generation in the student's own records turns a generic chatbot into a
+planner that remembers, and disciplined cost and context engineering makes it cheap
+enough to use every day.
+
+\begin{thebibliography}{1}
+\bibitem{openclaw} OpenClaw documentation. [Online]. Available: \url{https://openclaw.ai}
+\bibitem{anthropic} Anthropic, ``Claude API and Model Context Protocol (MCP).'' [Online]. Available: \url{https://docs.anthropic.com}
+\bibitem{lee} H.-N. Lee, ``Building a Useful Private AI Butler,'' GIST INFONET Lab, course notes (Week 10: \emph{Intelligence $=$ Compute $\times$ Memory $\times$ Retrieval}), 2026.
+\end{thebibliography}
+
+\end{document}
