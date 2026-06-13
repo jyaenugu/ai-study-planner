@@ -1,0 +1,15 @@
+# MCP framework (FastMCP server)
+mcp
+
+# Integrations
+notion-client      # notion-sync: mirror Obsidian Vault -> Notion
+requests           # HTTP calls (Spotify, blog, release-watcher)
+PyYAML             # parse Jekyll front-matter / config
+markdown-it-py     # notion-sync: markdown -> Notion blocks
+
+# Slide / diagram generation (data/build_slides.py, draw_diagrams.py)
+python-pptx
+Pillow
+
+# Note: Spotify auth (hiphop-mcp/auth.py) uses only the Python stdlib.
+# Secrets are NOT stored here — they live in ~/.openclaw/*.json (see README).

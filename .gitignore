@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Personal data — never publish
+*.db
+notion.json
+spotify.json
+*.pem
+coin_reminder_state.json
+release_watcher_state.json
+
+# OS
+.DS_Store
